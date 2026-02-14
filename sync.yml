@@ -1,0 +1,91 @@
+name: Discord Leaderboard Sync
+
+on:
+  # Run every 15 minutes
+  schedule:
+    - cron: '*/15 * * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      force_migration:
+        description: 'Force run database migration'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    env:
+      NODE_ENV: production
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run database migration
+        if: ${{ github.event.inputs.force_migration == 'true' || github.run_number == 1 }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run migrate
+
+      - name: Run leaderboard sync
+        env:
+          # Database
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          
+          # Discord
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          
+          # Game configurations
+          GAME_VALORANT_CHANNEL_ID: ${{ secrets.GAME_VALORANT_CHANNEL_ID }}
+          GAME_VALORANT_WEBHOOK_URL: ${{ secrets.GAME_VALORANT_WEBHOOK_URL }}
+          
+          GAME_LOL_CHANNEL_ID: ${{ secrets.GAME_LOL_CHANNEL_ID }}
+          GAME_LOL_WEBHOOK_URL: ${{ secrets.GAME_LOL_WEBHOOK_URL }}
+          
+          GAME_OVERWATCH_CHANNEL_ID: ${{ secrets.GAME_OVERWATCH_CHANNEL_ID }}
+          GAME_OVERWATCH_WEBHOOK_URL: ${{ secrets.GAME_OVERWATCH_WEBHOOK_URL }}
+          
+          # Configuration
+          DISCORD_RATE_LIMIT_DELAY: 1000
+          MAX_MESSAGES_PER_SYNC: 100
+          LOG_LEVEL: info
+        run: npm run sync
+
+      - name: Report sync status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Leaderboard sync completed successfully"
+          else
+            echo "❌ Leaderboard sync failed"
+            exit 1
+          fi
+
+  # Optional: Send notifications on failure
+  notify-on-failure:
+    runs-on: ubuntu-latest
+    needs: sync
+    if: failure()
+    
+    steps:
+      - name: Send Discord notification
+        # Optional: Add Discord webhook notification here
+        # You can use a Discord webhook action or curl
+        run: |
+          echo "Sync failed at $(date)"
+          # Example: curl -X POST ${{ secrets.DISCORD_ALERT_WEBHOOK }} \
+          #   -H "Content-Type: application/json" \
+          #   -d '{"content": "⚠️ Leaderboard sync failed!"}'
